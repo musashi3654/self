@@ -1,0 +1,131 @@
+#include "MPU6050.h"
+MPU6050 mpu;
+int16_t ax , ay , az;
+int16_t gx, gy, gz;
+#define BUFF 100
+
+unsigned long timer = 0;
+unsigned long time2r = 0;
+float gx_offset = 0,gy_offset = 0,gz_offset = 0;
+
+float angleX = 0, angleY = 0, angleZ = 0;
+
+void setup() {
+  Serial.begin(115200);
+  Wire.begin();
+  mpu.initialize();
+  delay(1000);
+
+
+  
+  mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_2);
+  mpu.setFullScaleGyroRange(MPU6050_GYRO_FS_250);
+  calibiration();
+}
+void calibrateGyro() {
+  Serial.println("Calibrating gyro...");
+  long sumX = 0, sumY = 0, sumZ = 0;
+  for (int i = 0; i < 500; i++) {
+    mpu.getRotation(&gx, &gy, &gz);
+    
+    sumZ += gz;
+    delay(3);
+  }
+
+  gz_offset = sumZ / 500.0;
+  
+}
+
+void loop() {
+  int16_t ax, ay, az, gx, gy, gz;
+  mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+  
+  
+
+
+  // Переводим гироскоп в град/сек
+  float Gx = gx / 65.5;
+  float Gy = gy / 65.5;
+  float Gz = gz / 65.5;
+  ;
+
+  float dt = (millis() - timer) / 1000.0;
+  timer = millis();
+  time2r = millis();
+
+  
+  
+  // Интегрируем углы
+  angleX += Gx * dt;
+  angleY += Gy * dt;
+  angleZ += Gz * dt;
+
+  // Рассчитываем углы из акселерометра
+  float roll  = atan2(ay, az) * 180 / PI;
+  float pitch = atan2(-(float)ax, sqrt((float)ay * (float)ay + (float)az * (float)az)) * 180 / PI;
+  
+  // Комплементарный фильтр
+  angleX = 0.98 * (angleX) + 0.02 * roll;
+  angleY = 0.98 * (angleY ) + 0.02 * pitch;
+  
+  
+
+  
+  
+  // Отправляем углы в Python
+  Serial.print(angleX); Serial.print(",");
+  Serial.print(angleY); Serial.print(",");
+  Serial.println(angleZ);
+
+  //Serial.print("sqrt: "); Serial.println(sqrt(ay*ay + az*az));
+
+  delay(20); // ~50 Гц
+  
+}
+void calibiration(){
+  long offset[6];
+  long offsetOLD[6];
+  int16_t getMPU[6];
+  mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_2);
+  mpu.setFullScaleGyroRange(MPU6050_GYRO_FS_250);
+  mpu.setXAccelOffset(0);
+  mpu.setYAccelOffset(0);
+  mpu.setZAccelOffset(0);
+  mpu.setXGyroOffset(0);
+  mpu.setYGyroOffset(0);
+  mpu.setZGyroOffset(0);
+  for(byte n=0;n<10;n++){
+    for(byte i= 0;i<6;i++){
+      offset[i]=0;
+    }
+    for(byte c= 0;c< 100 + BUFF;c++){
+      mpu.getMotion6(&getMPU[0],&getMPU[1],&getMPU[2],&getMPU[3],&getMPU[4],&getMPU[5]);
+      if(c>=99){
+        for(byte i =0;i<6;i++){
+          offset[i] += (long)getMPU[i];
+        }
+        
+      }
+
+    }
+    for(byte i =0;i<6;i++){
+      offset[i]= offsetOLD[i]- (offset[i] /BUFF);
+      if(i==2) offset[i]+=16384;
+      offsetOLD[i] = offset[i];
+
+    }
+    mpu.setXAccelOffset(offset[0]/8);
+    mpu.setYAccelOffset(offset[1]/8);
+    mpu.setZAccelOffset(offset[2]/8);
+    mpu.setXGyroOffset(offset[3]/4);
+    mpu.setYGyroOffset(offset[4]/4);
+    mpu.setZGyroOffset(offset[5]/4);
+
+
+
+  
+    
+  }
+  
+  
+}
